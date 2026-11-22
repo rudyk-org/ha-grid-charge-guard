@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Grid Charge Guard",
+        "description": "Select the grid input voltage sensor and the AC battery charging current number entity (not the total PV+AC current limit).",
+        "data": {
+          "voltage_entity": "Grid input voltage sensor",
+          "current_entity": "AC charge battery current control"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This AC charge current entity is already configured."
+    }
+  }
+}
