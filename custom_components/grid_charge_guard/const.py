@@ -1,6 +1,10 @@
 """Constants for Grid Charge Guard."""
 
 DOMAIN = "grid_charge_guard"
+CONF_NOTIFY_ENTITY = "notify_entity"
+EVENT_NAME = "grid_charge_guard_event"
+NOTIFY_COOLDOWN_SECONDS = 15 * 60
+WRITE_CONFIRM_TIMEOUT_SECONDS = 65
 CONF_VOLTAGE_ENTITY = "voltage_entity"
 CONF_CURRENT_ENTITY = "current_entity"
 DEFAULT_MAX = 60

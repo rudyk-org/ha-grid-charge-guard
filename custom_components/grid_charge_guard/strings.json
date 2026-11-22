@@ -13,5 +13,16 @@
     "abort": {
       "already_configured": "This AC charge current entity is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Notifications",
+        "description": "Optional. Choose an existing Telegram or other notify entity. Leave empty to disable alerts. Routine 5 A current steps are never sent.",
+        "data": {
+          "notify_entity": "Notify entity for important alerts (optional)"
+        }
+      }
+    }
   }
 }

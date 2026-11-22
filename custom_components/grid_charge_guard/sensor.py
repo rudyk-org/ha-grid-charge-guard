@@ -9,6 +9,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         GuardSensor(c, entry, "Grid charge mode", "mode", "mdi:shield-check"),
         GuardSensor(c, entry, "Grid losses 15m", "losses", "mdi:transmission-tower-off"),
         GuardSensor(c, entry, "Adaptive target current", "target", "mdi:current-dc"),
+        GuardSensor(c, entry, "Grid charge last event", "last_event", "mdi:history"),
     ])
 
 
@@ -25,7 +26,14 @@ class GuardSensor(SensorEntity):
     @property
     def native_value(self):
         c = self.controller
-        return {"mode": c.mode, "losses": c.losses, "target": c.target}[self.field]
+        return {"mode": c.mode, "losses": c.losses, "target": c.target,
+                "last_event": (c.reporter.last_event or {}).get("event")}[self.field]
+
+    @property
+    def extra_state_attributes(self):
+        if self.field == "last_event":
+            return c if (c := self.controller.reporter.last_event) else {}
+        return None
 
     async def async_added_to_hass(self):
         self.async_on_remove(self.controller.add_listener(self.async_write_ha_state))

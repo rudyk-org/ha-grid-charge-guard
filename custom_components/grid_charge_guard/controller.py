@@ -23,8 +23,10 @@ from .const import (
     DOMAIN, CONF_CURRENT_ENTITY, CONF_VOLTAGE_ENTITY, DEFAULT_MAX,
     MIN_CURRENT, MAX_CURRENT, OUTAGE_VOLTAGE, RECOVERY_VOLTAGE,
     OUTAGE_WINDOW, DERATE_HOLD, POLL_SECONDS, STORAGE_VERSION,
+    WRITE_CONFIRM_TIMEOUT_SECONDS,
 )
 from .logic import decide_current
+from .reporter import EventReporter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,6 +53,8 @@ class GridChargeController:
         self._stable_since: float | None = None
         self._last_increase = time.time()
         self._last_write = 0.0
+        self.reporter = EventReporter(self)
+        self._pending_write: dict | None = None
 
     async def async_load(self) -> None:
         data = await self.store.async_load() or {}
@@ -110,6 +114,10 @@ class GridChargeController:
         self._last_increase = time.time()
         await self._save()
         self._notify()
+        await self.reporter.emit(
+            "enabled" if enabled else "disabled",
+            "Автоматичне регулювання увімкнено" if enabled else "Автоматичне регулювання вимкнено",
+        )
         if enabled:
             self.hass.async_create_task(self.async_tick())
 
@@ -140,7 +148,12 @@ class GridChargeController:
             voltage = float(voltage_state.state) if voltage_state is not None else math.nan
         except (ValueError, TypeError):
             voltage = math.nan
+        await self._check_pending_write(now, current_state)
         if not math.isfinite(voltage) or voltage < 0 or voltage > 300:
+            if self.mode != "voltage_unavailable":
+                await self.reporter.emit("voltage_unavailable",
+                    "Датчик вхідної напруги недоступний. Автоматичні записи призупинено.",
+                    severity="warning", notify=True)
             self.mode = "voltage_unavailable"
             self._stable_since = None
             self._notify()
@@ -150,6 +163,10 @@ class GridChargeController:
         # If no reported update is observed for two minutes, don't issue a write.
         reported = getattr(voltage_state, "last_reported", None)
         if reported is not None and (now - reported.timestamp()) > 120:
+            if self.mode != "voltage_stale":
+                await self.reporter.emit("voltage_stale",
+                    "Дані напруги застаріли понад 120 с. Записи призупинено.",
+                    severity="warning", notify=True)
             self.mode = "voltage_stale"
             self._stable_since = None
             self._notify()
@@ -171,9 +188,22 @@ class GridChargeController:
                     self._low_since = None
                     self._in_outage = True
                     self.events.append(now)
-                    if len(self.events) >= 3:
+                    count = self.losses
+                    if count >= 3:
                         self.derate_until = now + DERATE_HOLD
                     await self._save()
+                    if count in (2, 3):
+                        cap = 50 if count == 2 else 10
+                        await self.reporter.emit(
+                            f"grid_loss_{count}",
+                            f"{count} зникнення мережі за 15 хв. Обмеження AC-заряду до {cap} А.",
+                            severity="warning", notify=True,
+                            grid_losses=count, voltage=voltage, cap=cap,
+                        )
+                    else:
+                        await self.reporter.emit("grid_loss",
+                            f"Зафіксовано зникнення вхідної напруги (за 15 хв: {count}).",
+                            grid_losses=count, voltage=voltage)
             self.mode = "grid_outage"
             self._notify()
             return
@@ -227,7 +257,20 @@ class GridChargeController:
         self.mode = decision.mode
         self._notify()
 
+        # Recovery notice only after 5 minutes of observed stable voltage.
+        if (self.reporter.recovery_needed and self.mode == "normal"
+                and self._stable_since is not None
+                and now - self._stable_since >= 300):
+            await self.reporter.emit("recovered",
+                "Мережа стабільна щонайменше 5 хв, звичайне регулювання відновлено.",
+                notify=True, voltage=voltage)
+
         if abs(actual - target) < step / 2 or now - self._last_write < 10:
+            return
+        # Avoid repeatedly writing a value that has not yet been read back.
+        # Still allow urgent downward corrections if the required target falls.
+        if (self._pending_write and now < self._pending_write["deadline"]
+                and target >= self._pending_write["target"]):
             return
 
         try:
@@ -238,11 +281,50 @@ class GridChargeController:
                 blocking=True,
             )
             self._last_write = now
+            self._pending_write = {
+                "previous": actual, "target": target, "deadline": now + WRITE_CONFIRM_TIMEOUT_SECONDS,
+                "reason": decision.mode,
+            }
             if target > actual:
                 self._last_increase = now
-            _LOGGER.info("Grid Charge Guard: AC charge current %.1f -> %.1f A", actual, target)
+            await self.reporter.emit(
+                "current_requested",
+                f"Запитано зміну AC-струму {actual:g} → {target:g} А ({decision.mode}).",
+                previous=actual, target=target, voltage=voltage, reason=decision.mode,
+            )
         except Exception:
             self._last_write = now
+            self._pending_write = None
             self.mode = "write_failed"
             self._notify()
+            await self.reporter.emit("write_failed",
+                f"Помилка надсилання AC-струму {target:g} А до Luxpower.",
+                severity="error", notify=True, target=target, voltage=voltage)
             _LOGGER.exception("Failed to set AC charging limit on %s", self.current_entity)
+
+    async def _check_pending_write(self, now: float, current_state) -> None:
+        """Observe HA entity readback; this is not independent Modbus acknowledgement."""
+        pending = self._pending_write
+        if not pending or current_state is None:
+            return
+        try:
+            current = float(current_state.state)
+        except (TypeError, ValueError):
+            current = math.nan
+        if math.isfinite(current) and abs(current - pending["target"]) < 0.5:
+            self._pending_write = None
+            await self.reporter.emit(
+                "current_observed",
+                f"HA показує новий ліміт AC-струму: {current:g} А.",
+                previous=pending["previous"], target=pending["target"],
+                reason=pending["reason"],
+            )
+        elif now >= pending["deadline"]:
+            self._pending_write = None
+            await self.reporter.emit(
+                "write_unconfirmed",
+                f"Через 65 с після запиту {pending['target']:g} А HA досі показує "
+                f"{current:g} А. Перевір Luxpower.",
+                severity="warning", notify=True,
+                expected=pending["target"], observed=current,
+            )
