@@ -2,7 +2,7 @@
 
 An experimental Home Assistant custom integration that **adjusts only the AC battery charging current limit** of an existing inverter integration using grid input voltage and recent grid interruptions. It does not connect to Luxpower/Modbus itself, and never writes PV charging limits or toggles AC charging.
 
-**Status: v0.2.1, experimental. Use only after a backup, with AC charge current safely configured and the integration switch OFF at installation. Not a substitute for a voltage protection relay, phase selector, fuses, or BMS.**
+**Status: v0.2.2, experimental. Use only after a backup, with AC charge current safely configured and the integration switch OFF at installation. Not a substitute for a voltage protection relay, phase selector, fuses, or BMS.**
 
 ## Requirements
 
@@ -23,20 +23,23 @@ An experimental Home Assistant custom integration that **adjusts only the AC bat
 
 For manual installation copy `custom_components/grid_charge_guard` to `/config/custom_components/grid_charge_guard`, restart HA, and add the integration from Devices & services.
 
-## Behavior
+## Behavior (v0.2.2)
 
-- **Voltage <195 V:** minimum current (default 10 A, or higher if dictated by the number entity).
-- **195–204.9 V:** decrease current by 10 A per controller tick (10 seconds, subject to pending-write readback).
-- **205–214.9 V:** decrease by 5 A no more often than once per 30 seconds of control actions. This rate limit does not delay protective caps caused by repeated grid losses.
-- **215–219.9 V:** do not raise current.
-- **≥220 V continuously for at least 5 minutes:** +5 A no more than every 5 minutes.
-- **1 grid loss in a rolling 15-minute window:** record only; voltage regulation still applies.
-- **2 grid losses:** cap current at 50 A.
-- **3 or more losses:** cap at 10 A for at least 30 minutes following the last qualifying grid-loss event. New events extend the 30-minute hold.
-- **Actual 0 V:** no Modbus set-value attempts while voltage is absent.
-- Voltage values reported as `unknown`/`unavailable` do **not** count as outages. At startup an initial 0 V sample does not count as a new event. A low-voltage sample must persist for another 10-second poll to count as one loss. A new loss can only be counted after voltage recovers to ≥180 V.
-- Stores enabled state, max current, recent losses, and derate expiry in HA `.storage`. After HA restart, upward ramping waits for five minutes of observed voltage ≥220 V. Missing readings prevent new writes.
-- Disabling the integration stops changes to the AC charge limit, but does not restore the previous numeric limit. The existing AC charging enable switch is never changed.
+- Voltage sampled every **10 seconds** into a **3-minute sliding average**; ordinary regulation requires at least **2 minutes of samples** after startup or an outage. The average is exposed as `sensor.grid_voltage_average_3m`.
+- **Average ≥220 V:** increase grid-only charging by 5 A at most every **3 minutes**, after at least 2 minutes of acceptable averaged voltage. A brief average drop to 215–219 V does not reset the recovery timer.
+- **Average 215–219.9 V:** hold current, do not repeatedly reduce it.
+- **Average 205–214.9 V:** reduce by 5 A at most once every **2 minutes**.
+- **Average below 205 V:** reduce by 10 A at most every **45 seconds**.
+- **Instantaneous voltage below 205 V for at least 20 seconds:** reduce by 10 A, bypassing a high moving average (at most every 30 seconds).
+- **Instantaneous voltage below 195 V:** immediately request the minimum current (10 A by default), even before the mean is ready.
+- **Grid voltage falls below 50 V:** treat as outage/phase transfer. No writes during the outage; discard old average and count interruption independently. An `unknown`/`unavailable` sensor value is **not** a confirmed grid loss.
+- **1 loss in rolling 15 minutes:** log; **2 losses:** cap at 50 A; **3+ losses:** cap at 10 A for at least 30 minutes. Protective caps are not throttled by averaging.
+- **PV, BMS and AC Charging toggle:** never modified. Only the selected grid charging current `number` is written.
+- After restart, the average is rebuilt before ramping up; a missing or stale voltage source suspends writes.
+
+### Upgrade from v0.2.1
+
+Apply the patch, update the integration and restart Home Assistant. For the updated card frontend, change the resource URL to `/grid-charge-guard/card.js?v=0.2.2` and refresh the browser. The existing `notify` configuration and dashboard entity IDs are preserved. New optional card entity: `average_voltage_entity: sensor.grid_voltage_average_3m`.
 
 ## Important limitations
 
@@ -54,12 +57,20 @@ For manual installation copy `custom_components/grid_charge_guard` to `/config/c
 - `sensor.*_grid_charge_mode`: `normal`, `derated`, `critical_derate`, `low_voltage`, `grid_outage`, `disabled`, or error states
 - `sensor.*_grid_losses_15m`: count of low-voltage interruption events in the last 15 minutes
 - `sensor.*_adaptive_target_current`: last computed target in A
+- `sensor.*_grid_voltage_average_3m`: time-windowed input voltage average (V), blank during warmup
 
 ## Development
 
 Run `python -m pytest -q tests` for unit tests of the policy. For integration behavior, use a separate test Home Assistant instance with simulated entities; this repository has **not** undergone live Modbus/hardware tests.
 
 Licensed MIT.
+
+## v0.2.2: sliding voltage average and recovery hysteresis
+
+- Use a three-minute moving average for normal derating/ramp-up decisions.
+- Keep a raw-voltage emergency path and the separate phase-transfer/outage counter.
+- Resume incremental charging after averaged voltage stabilizes instead of resetting on every brief dip.
+- Expose the new voltage average sensor and show it in the bundled card.
 
 ## v0.2.1: prevent overreaction to moderate voltage dips
 

@@ -12,6 +12,7 @@ class GridChargeGuardCard extends HTMLElement {
         { name: "last_event_entity", selector: { entity: { domain: "sensor" } } },
         { name: "actual_entity", selector: { entity: { domain: "number" } } },
         { name: "voltage_entity", selector: { entity: { domain: "sensor" } } },
+        { name: "average_voltage_entity", selector: { entity: { domain: "sensor" } } },
       ],
     };
   }
@@ -24,6 +25,7 @@ class GridChargeGuardCard extends HTMLElement {
       mode_entity: "sensor.grid_charge_mode",
       losses_entity: "sensor.grid_losses_15m",
       last_event_entity: "sensor.grid_charge_last_event",
+      average_voltage_entity: "sensor.grid_voltage_average_3m",
       ...config,
     };
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
@@ -55,6 +57,7 @@ class GridChargeGuardCard extends HTMLElement {
     const losses = this.value(c.losses_entity);
     const actual = this.value(c.actual_entity);
     const voltage = this.value(c.voltage_entity);
+    const averageVoltage = this.value(c.average_voltage_entity);
     const last = this.state(c.last_event_entity);
     const lastMsg = last?.attributes?.message || "Очікуємо першої події регулятора";
     const lastAt = last?.attributes?.time || "";
@@ -66,7 +69,8 @@ class GridChargeGuardCard extends HTMLElement {
       critical_derate: "Мінімальний заряд", low_voltage: "Низька напруга",
       grid_outage: "Вхідна мережа відсутня", voltage_unavailable: "Датчик недоступний",
       voltage_stale: "Застарілі дані", current_unavailable: "Немає струму",
-      write_failed: "Помилка запису", disabled: "Регулятор вимкнено",
+      write_failed: "Помилка запису", averaging: "Усереднення напруги",
+      disabled: "Регулятор вимкнено",
       startup: "Ініціалізація", invalid_current_limits: "Некоректні межі струму",
     }[mode] || mode;
     const status = !enabled ? "off" : failure ? "bad" : warning ? "warn" : "ok";
@@ -125,6 +129,7 @@ class GridChargeGuardCard extends HTMLElement {
             <div class="stat"><div class="name">Режим</div><div class="val">${this.escape(modeLabel)}</div></div>
             ${c.actual_entity ? `<div class="stat"><div class="name">Ліміт Luxpower</div><div class="val">${this.escape(actual)} A</div></div>` : ""}
             ${c.voltage_entity ? `<div class="stat"><div class="name">Напруга мережі</div><div class="val">${this.escape(voltage)} В</div></div>` : ""}
+            ${c.average_voltage_entity ? `<div class="stat"><div class="name">Середня за 3 хв</div><div class="val">${this.escape(averageVoltage)} В</div></div>` : ""}
           </div>
           <div class="event"><div class="event-title">Остання дія · ${this.escape(lastAt)}</div>
             <div class="event-body">${this.escape(lastMsg)}</div></div>

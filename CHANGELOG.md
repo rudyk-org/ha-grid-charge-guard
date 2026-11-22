@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+- Use a 3-minute sliding voltage average with a 2-minute warmup to avoid reacting to every single noisy sample.
+- Let 5 A increases resume after averaged voltage is stable; preserve instantaneous severe undervoltage protection.
+- Rate-limit persistent average-based reductions and keep zero-voltage selector transfers out of the average.
+- Add voltage average diagnostic sensor to the bundled card and controller tests.
+
 ## 0.2.1
 
 - Throttle 205–214.9 V current reductions to 5 A per 30 seconds, instead of per 10-second poll.
