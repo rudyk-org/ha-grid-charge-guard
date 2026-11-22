@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Throttle 205–214.9 V current reductions to 5 A per 30 seconds, instead of per 10-second poll.
+- Preserve fast deep-voltage response and immediate hard caps from repeated grid losses.
+- Add tests for rate limiting, severe dips, protective caps, and threshold boundaries.
+
 ## 0.2.0
 
 - Bundle an attractive Lovelace card with live controller state and basic controls.

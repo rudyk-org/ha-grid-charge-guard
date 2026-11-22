@@ -2,7 +2,7 @@
 
 An experimental Home Assistant custom integration that **adjusts only the AC battery charging current limit** of an existing inverter integration using grid input voltage and recent grid interruptions. It does not connect to Luxpower/Modbus itself, and never writes PV charging limits or toggles AC charging.
 
-**Status: v0.2.0, experimental. Use only after a backup, with AC charge current safely configured and the integration switch OFF at installation. Not a substitute for a voltage protection relay, phase selector, fuses, or BMS.**
+**Status: v0.2.1, experimental. Use only after a backup, with AC charge current safely configured and the integration switch OFF at installation. Not a substitute for a voltage protection relay, phase selector, fuses, or BMS.**
 
 ## Requirements
 
@@ -26,8 +26,8 @@ For manual installation copy `custom_components/grid_charge_guard` to `/config/c
 ## Behavior
 
 - **Voltage <195 V:** minimum current (default 10 A, or higher if dictated by the number entity).
-- **195–204.9 V:** decrease current by 10 A per 10-second tick.
-- **205–214.9 V:** decrease by 5 A per 10-second tick.
+- **195–204.9 V:** decrease current by 10 A per controller tick (10 seconds, subject to pending-write readback).
+- **205–214.9 V:** decrease by 5 A no more often than once per 30 seconds of control actions. This rate limit does not delay protective caps caused by repeated grid losses.
 - **215–219.9 V:** do not raise current.
 - **≥220 V continuously for at least 5 minutes:** +5 A no more than every 5 minutes.
 - **1 grid loss in a rolling 15-minute window:** record only; voltage regulation still applies.
@@ -60,6 +60,13 @@ For manual installation copy `custom_components/grid_charge_guard` to `/config/c
 Run `python -m pytest -q tests` for unit tests of the policy. For integration behavior, use a separate test Home Assistant instance with simulated entities; this repository has **not** undergone live Modbus/hardware tests.
 
 Licensed MIT.
+
+## v0.2.1: prevent overreaction to moderate voltage dips
+
+- Moderate grid undervoltage (205–214.9 V) causes at most one 5 A decrease per 30 seconds of successfully requested reductions, instead of one per 10-second tick.
+- Severe voltage dips below 205 V and protective derating after repeated outages still act immediately (subject to Modbus/HA state reporting).
+- No changes to PV charging, the inverter's AC Charging enable switch, notifications or the dashboard card.
+- When installing the updated card for the first time, the bundled JS remains at v0.2.0; there is no frontend resource change in this release.
 
 ## v0.2.0: dashboard card, diagnostics and alerts
 

@@ -52,6 +52,8 @@ class GridChargeController:
         self._low_since: float | None = None
         self._stable_since: float | None = None
         self._last_increase = time.time()
+        # First moderate voltage dip may reduce immediately; later drops are throttled.
+        self._last_voltage_decrease = float("-inf")
         self._last_write = 0.0
         self.reporter = EventReporter(self)
         self._pending_write: dict | None = None
@@ -248,6 +250,7 @@ class GridChargeController:
             losses=self.losses, derate_active=(now < self.derate_until),
             stable_for=(now - self._stable_since if self._stable_since is not None else 0),
             since_increase=now - self._last_increase,
+            since_voltage_decrease=now - self._last_voltage_decrease,
         )
         # Quantize DOWN to avoid exceeding a safe cap.
         target = max(native_min, native_min +
@@ -287,6 +290,10 @@ class GridChargeController:
             }
             if target > actual:
                 self._last_increase = now
+            elif target < actual and voltage < 215:
+                # Rate-limit based on successfully sent requests, not stale HA
+                # readback or merely computed targets. Severe dips bypass it.
+                self._last_voltage_decrease = now
             await self.reporter.emit(
                 "current_requested",
                 f"Запитано зміну AC-струму {actual:g} → {target:g} А ({decision.mode}).",
