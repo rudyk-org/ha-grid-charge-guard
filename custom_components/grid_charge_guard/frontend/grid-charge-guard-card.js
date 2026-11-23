@@ -87,7 +87,7 @@ class GridChargeGuardCard extends HTMLElement {
     const settingCards = settings.map(([label, id, unit]) => `
       <button type="button" class="stat interactive" data-history="${this.escape(id)}"
         aria-label="Відкрити ${this.escape(label)} та історію змін">
-        <div class="name">${this.escape(label)} ↗</div>
+        <div class="name">${this.escape(label)}</div>
         <div class="val">${this.escape(this.value(id))} ${this.escape(unit)}</div>
       </button>`).join("");
     const warning = ["critical_derate", "derated", "low_voltage", "voltage_dip", "grid_outage"].includes(mode);
@@ -159,21 +159,21 @@ class GridChargeGuardCard extends HTMLElement {
               aria-label="Режим та історія">${this.escape(!enabled ? "OFF" : modeLabel)}</button></div>
           <div class="sub">Розумне керування зарядом від мережі</div>
           <div class="hero"><button type="button" class="metric-action" data-history="${this.escape(c.target_entity)}" aria-label="Історія цільового струму">
-            <div class="metric-label">Цільовий струм ↗</div>
+            <div class="metric-label">Цільовий струм</div>
             <div class="big">${this.escape(target)} <span class="unit">А</span></div></button>
             <button type="button" class="metric-action max" data-history="${this.escape(c.max_entity)}" aria-label="Максимум: керування та історія">
-              <div class="metric-label">Дозволений максимум ↗</div>
+              <div class="metric-label">Дозволений максимум</div>
               <strong>${this.escape(max)} А</strong></button></div>
           <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
           <div class="grid">
-            <button type="button" class="stat interactive" data-history="${this.escape(c.losses_entity)}"><div class="name">Зникнень за 15 хв ↗</div><div class="val">${this.escape(losses)}</div></button>
-            <button type="button" class="stat interactive" data-history="${this.escape(c.mode_entity)}"><div class="name">Режим ↗</div><div class="val">${this.escape(modeLabel)}</div></button>
-            ${c.actual_entity ? `<button type="button" class="stat interactive" data-history="${this.escape(c.actual_entity)}"><div class="name">Ліміт Luxpower ↗</div><div class="val">${this.escape(actual)} A</div></button>` : ""}
-            ${c.voltage_entity ? `<button type="button" class="stat interactive" data-history="${this.escape(c.voltage_entity)}"><div class="name">Напруга мережі ↗</div><div class="val">${this.escape(voltage)} В</div></button>` : ""}
-            ${c.average_voltage_entity ? `<button type="button" class="stat interactive" data-history="${this.escape(c.average_voltage_entity)}"><div class="name">Середня за ${this.escape(averageMinutes)} хв ↗</div><div class="val">${this.escape(averageVoltage)} В</div></button>` : ""}
+            <button type="button" class="stat interactive" data-history="${this.escape(c.losses_entity)}"><div class="name">Зникнень за 15 хв</div><div class="val">${this.escape(losses)}</div></button>
+            <button type="button" class="stat interactive" data-history="${this.escape(c.mode_entity)}"><div class="name">Режим</div><div class="val">${this.escape(modeLabel)}</div></button>
+            ${c.actual_entity ? `<button type="button" class="stat interactive" data-history="${this.escape(c.actual_entity)}"><div class="name">Ліміт Luxpower</div><div class="val">${this.escape(actual)} A</div></button>` : ""}
+            ${c.voltage_entity ? `<button type="button" class="stat interactive" data-history="${this.escape(c.voltage_entity)}"><div class="name">Напруга мережі</div><div class="val">${this.escape(voltage)} В</div></button>` : ""}
+            ${c.average_voltage_entity ? `<button type="button" class="stat interactive" data-history="${this.escape(c.average_voltage_entity)}"><div class="name">Середня за ${this.escape(averageMinutes)} хв</div><div class="val">${this.escape(averageVoltage)} В</div></button>` : ""}
           </div>
           <button type="button" class="event interactive" data-history="${this.escape(c.last_event_entity)}" style="background:transparent;color:inherit;font:inherit;text-align:left" aria-label="Остання дія та історія">
-            <div class="event-title">Остання дія ↗ · ${this.escape(lastAt)}</div>
+            <div class="event-title">Остання дія · ${this.escape(lastAt)}</div>
             <div class="event-body">${this.escape(lastMsg)}</div></button>
           <div class="foot"><button class="button ${enabled?'secondary':''}" id="toggle">
             ${enabled ? "Вимкнути автоматику" : "Увімкнути автоматику"}</button>
