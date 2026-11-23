@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3
+
+- Add 8 persistent, native HA number entities for minimum AC current, up/down steps, ramp/drop intervals, and voltage averaging window.
+- Make all dashboard metrics clickable to open native HA more-info/history, with an expandable settings section.
+- Keep emergency voltage and outage protections fixed, preserve original entity IDs and storage compatibility.
+- Add tests for tuning parameters and invalid stored settings.
+
 ## 0.2.2
 
 - Use a 3-minute sliding voltage average with a 2-minute warmup to avoid reacting to every single noisy sample.

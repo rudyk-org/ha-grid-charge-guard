@@ -2,7 +2,7 @@
 
 An experimental Home Assistant custom integration that **adjusts only the AC battery charging current limit** of an existing inverter integration using grid input voltage and recent grid interruptions. It does not connect to Luxpower/Modbus itself, and never writes PV charging limits or toggles AC charging.
 
-**Status: v0.2.2, experimental. Use only after a backup, with AC charge current safely configured and the integration switch OFF at installation. Not a substitute for a voltage protection relay, phase selector, fuses, or BMS.**
+**Status: v0.2.3, experimental. Use only after a backup, with AC charge current safely configured and the integration switch OFF at installation. Not a substitute for a voltage protection relay, phase selector, fuses, or BMS.**
 
 ## Requirements
 
@@ -138,3 +138,28 @@ Events are not retained forever; the newest one is exposed as `sensor.grid_charg
 ### Upgrade
 
 The existing config entry and regulator state are preserved. After upgrading the integration files, restart HA, add the optional notify entity using Configure and add the bundled card resource. **Disable automation temporarily during upgrade** and test with a conservative AC current cap; the new notification logic has not been tested against your physical inverter.
+
+## v0.2.3: live tuning and native HA history
+
+Eight native `number` entities were added and settings persist in the integration's HA `.storage` alongside the existing maximum. They are live-editable from the device entity dialog or the card's **Налаштування регулятора** section, no HA restart required:
+
+| Entity (usual ID) | Default | Allowed range |
+| --- | ---: | --- |
+| `number.minimum_ac_charge_current` | 10 A | 5–50 A (5 A step) |
+| `number.charge_ramp_up_step` | 5 A | 5–20 A (5 A step) |
+| `number.moderate_voltage_drop_step` | 5 A | 5–20 A (5 A step) |
+| `number.severe_voltage_drop_step` | 10 A | 5–30 A (5 A step) |
+| `number.charge_ramp_interval` | 3 min | 2–15 min |
+| `number.moderate_drop_interval` | 120 s | 30–300 s (30 s step) |
+| `number.severe_drop_interval` | 45 s | 30–180 s (15 s step) |
+| `number.voltage_averaging_window` | 3 min | 2–10 min |
+
+**Min/max relationship:** the minimum is capped by the user maximum (and by the actual inverter `number` min/max for writes). The effective safe minimum is the greatest of the configured minimum and the inverter entity's native minimum. If the hardware requires at least 10 A, setting 5 A in the UI **does not** cause a 5 A Modbus command.
+
+**Safety limits remain fixed:** raw voltage below 195 V triggers the configured effective minimum; the grid-loss detector still counts zero-voltage interruptions separately; at 2 losses the allowed current is capped at 50 A, at 3 losses the effective minimum is held for 30 minutes. This update does **not** change PV charging, total charge, or the AC Charging switch. Changing the averaging window resets the observation window and upward ramp warmup.
+
+**Card / history:** update the Lovelace resource URL to `/grid-charge-guard/card.js?v=0.2.3` and hard-refresh the dashboard. Tap the target current, maximum, input voltage, averaged voltage, mode, loss count, actual inverter limit, or the most recent event to open Home Assistant's native more-info dialog. Numeric controls in the expandable settings section open the native value editor with history. This relies on the HA Recorder storing those entities; no history is invented by the card.
+
+Existing dashboards keep the legacy `sensor.grid_voltage_average_3m` entity ID for compatibility; its new attribute `configured_window_minutes` reflects the actual filter duration, which may no longer be 3 minutes.
+
+**After upgrading:** disable adaptive control during replacement, restart HA, confirm the new number entities exist and have sane defaults, then re-enable with a conservative maximum. This release is tested with pure Python logic unit tests and JS syntax checks only, not on a physical Luxpower.

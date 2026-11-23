@@ -116,3 +116,59 @@ def test_invalid_voltage_does_not_authorize_charge_ramp():
 def test_dont_ramp_up_during_a_brief_raw_dip():
     assert case(voltage=210, average_voltage=230, current=50,
                 stable_for=120, since_increase=180).target == 50
+
+
+def test_configurable_increase_step_and_interval():
+    assert case(average_voltage=230, stable_for=150, since_increase=180,
+                ramp_up_step=10, ramp_interval_seconds=240).target == 50
+    assert case(average_voltage=230, stable_for=150, since_increase=240,
+                ramp_up_step=10, ramp_interval_seconds=240).target == 60
+
+
+def test_configurable_moderate_decrease_and_interval():
+    assert case(average_voltage=210, current=60,
+                moderate_drop_step=15, moderate_drop_interval_seconds=180,
+                since_voltage_decrease=179).target == 60
+    assert case(average_voltage=210, current=60,
+                moderate_drop_step=15, moderate_drop_interval_seconds=180,
+                since_voltage_decrease=180).target == 45
+
+
+def test_configurable_severe_decrease_and_interval():
+    assert case(average_voltage=200, current=60,
+                severe_drop_step=20, severe_drop_interval_seconds=60,
+                since_voltage_decrease=59).target == 60
+    assert case(average_voltage=200, current=60,
+                severe_drop_step=20, severe_drop_interval_seconds=60,
+                since_voltage_decrease=60).target == 40
+
+
+def test_custom_minimum_is_respected_on_emergency():
+    assert case(voltage=194, average_voltage=235, current=60,
+                min_current=15).target == 15
+    assert case(voltage=194, average_voltage=235, current=60,
+                min_current=5).target == 5
+
+
+def test_outage_protection_overrides_user_steps_and_rates():
+    assert case(losses=3, current=80, min_current=15,
+                average_voltage=230, stable_for=999, since_increase=999,
+                ramp_up_step=20).target == 15
+    assert case(losses=2, current=80, min_current=15,
+                average_voltage=230, stable_for=999, since_increase=999,
+                ramp_up_step=20).target == 50
+
+
+def test_averaged_voltage_safe_boundary_holds_without_ramp():
+    assert case(voltage=230, average_voltage=219.9, current=45,
+                stable_for=999, since_increase=999,
+                ramp_up_step=15).target == 45
+
+
+def test_native_setting_normalization():
+    spec = dict(minimum=5, maximum=50, step=5, default=10)
+    assert logic.normalize_setting(17, spec) == 15
+    assert logic.normalize_setting(999, spec) == 50
+    assert logic.normalize_setting(-99, spec) == 5
+    assert logic.normalize_setting("unavailable", spec) == 10
+    assert logic.normalize_setting(float("nan"), spec) == 10

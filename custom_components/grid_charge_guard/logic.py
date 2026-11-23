@@ -6,6 +6,19 @@ from collections import deque
 from math import isfinite
 
 
+def normalize_setting(raw, spec: dict) -> int:
+    """Clamp and quantize a native HA number setting (safe on malformed storage)."""
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        value = spec["default"]
+    if not isfinite(value):
+        value = spec["default"]
+    value = min(spec["maximum"], max(spec["minimum"], value))
+    return int(spec["minimum"] +
+               round((value - spec["minimum"]) / spec["step"]) * spec["step"])
+
+
 # Fast protective steps for sustained low voltage, slow steps for 3-minute mean.
 LOW_VOLTAGE_DROP_INTERVAL_SECONDS = 30
 AVERAGE_SEVERE_DROP_INTERVAL_SECONDS = 45
@@ -50,6 +63,10 @@ def decide_current(
     sustained_low: bool, current: float, user_max: float, min_current: float,
     losses: int, derate_active: bool, stable_for: float, since_increase: float,
     since_voltage_decrease: float,
+    ramp_up_step: float = 5, moderate_drop_step: float = 5,
+    severe_drop_step: float = 10, ramp_interval_seconds: float = 180,
+    moderate_drop_interval_seconds: float = AVERAGE_MODERATE_DROP_INTERVAL_SECONDS,
+    severe_drop_interval_seconds: float = AVERAGE_SEVERE_DROP_INTERVAL_SECONDS,
 ) -> Decision:
     """Decide from averaged voltage; preserve raw-voltage emergency protection.
 
@@ -73,23 +90,23 @@ def decide_current(
     elif sustained_low:
         # Below 205 V for at least 20 s, even if average is still high.
         if since_voltage_decrease >= LOW_VOLTAGE_DROP_INTERVAL_SECONDS:
-            target = max(min_current, target - 10)
+            target = max(min_current, target - severe_drop_step)
         mode = "low_voltage"
     elif average_voltage is None:
         # Startup, after an outage or a sensor gap: no upward adjustments.
         if mode == "normal":
             mode = "averaging"
     elif average_voltage < 205:
-        if since_voltage_decrease >= AVERAGE_SEVERE_DROP_INTERVAL_SECONDS:
-            target = max(min_current, target - 10)
+        if since_voltage_decrease >= severe_drop_interval_seconds:
+            target = max(min_current, target - severe_drop_step)
         mode = "low_voltage"
     elif average_voltage < 215:
-        if since_voltage_decrease >= AVERAGE_MODERATE_DROP_INTERVAL_SECONDS:
-            target = max(min_current, target - 5)
+        if since_voltage_decrease >= moderate_drop_interval_seconds:
+            target = max(min_current, target - moderate_drop_step)
         mode = "low_voltage"
     elif (average_voltage >= 220 and voltage >= 215
-          and stable_for >= 120 and since_increase >= 180):
-        target = min(target + 5, cap)
+          and stable_for >= 120 and since_increase >= ramp_interval_seconds):
+        target = min(target + ramp_up_step, cap)
 
     target = max(min_current, min(target, cap, user_max))
     return Decision(target=target, cap=cap, mode=mode)

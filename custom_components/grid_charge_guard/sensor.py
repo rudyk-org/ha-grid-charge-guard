@@ -37,6 +37,9 @@ class GuardSensor(SensorEntity):
     def extra_state_attributes(self):
         if self.field == "last_event":
             return c if (c := self.controller.reporter.last_event) else {}
+        if self.field == "voltage_average":
+            # Keep legacy sensor entity_id ending in _3m for dashboards.
+            return {"configured_window_minutes": self.controller.settings["average_window_minutes"]}
         return None
 
     async def async_added_to_hass(self):

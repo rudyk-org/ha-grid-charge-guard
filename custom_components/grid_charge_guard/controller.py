@@ -25,8 +25,9 @@ from .const import (
     OUTAGE_WINDOW, DERATE_HOLD, POLL_SECONDS, STORAGE_VERSION,
     WRITE_CONFIRM_TIMEOUT_SECONDS, VOLTAGE_AVERAGE_WINDOW_SECONDS,
     VOLTAGE_AVERAGE_WARMUP_SECONDS, VOLTAGE_AVERAGE_MIN_SAMPLES,
+    SETTING_SPECS,
 )
-from .logic import decide_current, VoltageWindow
+from .logic import decide_current, VoltageWindow, normalize_setting
 from .reporter import EventReporter
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class GridChargeController:
         self.store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}")
         self.enabled = False
         self.user_max = DEFAULT_MAX
+        self.settings = {name: spec["default"] for name, spec in SETTING_SPECS.items()}
         self.mode = "disabled"
         self.target: int | None = None
         self.events: deque[float] = deque()
@@ -53,11 +55,7 @@ class GridChargeController:
         self._low_since: float | None = None
         self._stable_since: float | None = None
         # The 0 V selector transfer is handled separately, never averaged.
-        self._voltage_filter = VoltageWindow(
-            VOLTAGE_AVERAGE_WINDOW_SECONDS,
-            VOLTAGE_AVERAGE_WARMUP_SECONDS,
-            VOLTAGE_AVERAGE_MIN_SAMPLES,
-        )
+        self._voltage_filter = self._new_voltage_filter()
         self.average_voltage: float | None = None
         self._sustained_low_since: float | None = None
         self._last_increase = time.time()
@@ -70,7 +68,18 @@ class GridChargeController:
     async def async_load(self) -> None:
         data = await self.store.async_load() or {}
         self.enabled = bool(data.get("enabled", False))
-        self.user_max = max(MIN_CURRENT, min(MAX_CURRENT, float(data.get("user_max", DEFAULT_MAX))))
+        saved_settings = data.get("settings", {})
+        if not isinstance(saved_settings, dict):
+            saved_settings = {}
+        for name, spec in SETTING_SPECS.items():
+            self.settings[name] = self._bound_setting(
+                name, saved_settings.get(name, spec["default"])
+            )
+        self.user_max = max(
+            self.settings["min_current"],
+            min(MAX_CURRENT, float(data.get("user_max", DEFAULT_MAX))),
+        )
+        self._voltage_filter = self._new_voltage_filter()
         now = time.time()
         self.events = deque(float(t) for t in data.get("events", [])
                             if isinstance(t, (int, float)) and 0 <= now - t < OUTAGE_WINDOW)
@@ -81,9 +90,19 @@ class GridChargeController:
         await self.store.async_save({
             "enabled": self.enabled,
             "user_max": self.user_max,
+            "settings": self.settings.copy(),
             "events": list(self.events),
             "derate_until": self.derate_until,
         })
+
+    @staticmethod
+    def _bound_setting(name: str, raw: float) -> int:
+        return normalize_setting(raw, SETTING_SPECS[name])
+
+    def _new_voltage_filter(self) -> VoltageWindow:
+        window = self.settings["average_window_minutes"] * 60
+        warmup = min(window - 10, max(60, round(window * 2 / 3)))
+        return VoltageWindow(window, warmup, VOLTAGE_AVERAGE_MIN_SAMPLES)
 
     @property
     def losses(self) -> int:
@@ -140,7 +159,28 @@ class GridChargeController:
             self.hass.async_create_task(self.async_tick())
 
     async def set_maximum(self, maximum: float) -> None:
-        self.user_max = max(MIN_CURRENT, min(MAX_CURRENT, maximum))
+        self.user_max = max(self.settings["min_current"],
+                            min(MAX_CURRENT, maximum))
+        await self._save()
+        self._notify()
+        if self.enabled:
+            self.hass.async_create_task(self.async_tick())
+
+    async def set_setting(self, name: str, value: float) -> None:
+        """Apply a controller setting without restarting HA or touching PV limits."""
+        if name not in SETTING_SPECS:
+            raise ValueError(f"Unknown charge setting: {name}")
+        bounded = self._bound_setting(name, value)
+        if name == "min_current":
+            bounded = min(bounded, self.user_max)
+        if self.settings[name] == bounded:
+            return
+        self.settings[name] = bounded
+        if name == "average_window_minutes":
+            self._voltage_filter = self._new_voltage_filter()
+            self.average_voltage = None
+            self._stable_since = None
+            self._last_increase = time.time()
         await self._save()
         self._notify()
         if self.enabled:
@@ -223,7 +263,7 @@ class GridChargeController:
                         self.derate_until = now + DERATE_HOLD
                     await self._save()
                     if count in (2, 3):
-                        cap = 50 if count == 2 else 10
+                        cap = 50 if count == 2 else self.settings["min_current"]
                         await self.reporter.emit(
                             f"grid_loss_{count}",
                             f"{count} зникнення мережі за 15 хв. Обмеження AC-заряду до {cap} А.",
@@ -284,8 +324,10 @@ class GridChargeController:
 
         # Cap at the target entity's own min/max. Respect its declared step.
         attrs = current_state.attributes
-        native_min = max(MIN_CURRENT, float(attrs.get("min", MIN_CURRENT)))
-        native_max = min(MAX_CURRENT, float(attrs.get("max", MAX_CURRENT)))
+        native_min = max(MIN_CURRENT, self.settings["min_current"],
+                         float(attrs.get("min", MIN_CURRENT)))
+        native_max = min(MAX_CURRENT, self.user_max,
+                         float(attrs.get("max", MAX_CURRENT)))
         step = max(1.0, float(attrs.get("step", 1.0)))
         if native_min > native_max:
             self.mode = "invalid_current_limits"
@@ -300,6 +342,12 @@ class GridChargeController:
             stable_for=(now - self._stable_since if self._stable_since is not None else 0),
             since_increase=now - self._last_increase,
             since_voltage_decrease=now - self._last_voltage_decrease,
+            ramp_up_step=self.settings["ramp_up_step"],
+            moderate_drop_step=self.settings["moderate_drop_step"],
+            severe_drop_step=self.settings["severe_drop_step"],
+            ramp_interval_seconds=self.settings["ramp_interval_minutes"] * 60,
+            moderate_drop_interval_seconds=self.settings["moderate_drop_interval_seconds"],
+            severe_drop_interval_seconds=self.settings["severe_drop_interval_seconds"],
         )
         # Quantize DOWN to avoid exceeding a safe cap.
         target = max(native_min, native_min +

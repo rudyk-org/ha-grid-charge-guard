@@ -1,7 +1,7 @@
 {
   "domain": "grid_charge_guard",
   "name": "Grid Charge Guard",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "config_flow": true,
   "documentation": "https://github.com/rudyk-org/ha-grid-charge-guard",
   "issue_tracker": "https://github.com/rudyk-org/ha-grid-charge-guard/issues",
