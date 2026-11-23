@@ -27,7 +27,7 @@ from .const import (
     VOLTAGE_AVERAGE_WARMUP_SECONDS, VOLTAGE_AVERAGE_MIN_SAMPLES,
     SETTING_SPECS,
 )
-from .logic import decide_current, VoltageWindow, normalize_setting
+from .logic import decide_current, VoltageWindow, VoltageObservations, normalize_setting
 from .reporter import EventReporter
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ class GridChargeController:
         # The 0 V selector transfer is handled separately, never averaged.
         self._voltage_filter = self._new_voltage_filter()
         self.average_voltage: float | None = None
-        self._sustained_low_since: float | None = None
+        self._observations = VoltageObservations()
         self._last_increase = time.time()
         # First moderate voltage dip may reduce immediately; later drops are throttled.
         self._last_voltage_decrease = float("-inf")
@@ -124,7 +124,7 @@ class GridChargeController:
         self._stable_since = None
         self._voltage_filter.clear()
         self.average_voltage = None
-        self._sustained_low_since = None
+        self._observations.reset()
         self._last_increase = time.time()
         self._unsub_timer = async_track_time_interval(
             self.hass, self._timer_callback, timedelta(seconds=POLL_SECONDS)
@@ -147,7 +147,7 @@ class GridChargeController:
         # Rebuild the average on re-enabling; do not reuse stale voltage.
         self._voltage_filter.clear()
         self.average_voltage = None
-        self._sustained_low_since = None
+        self._observations.reset()
         self._last_increase = time.time()
         await self._save()
         self._notify()
@@ -219,7 +219,7 @@ class GridChargeController:
             self._stable_since = None
             self._voltage_filter.clear()
             self.average_voltage = None
-            self._sustained_low_since = None
+            self._observations.reset()
             self._notify()
             return
 
@@ -235,7 +235,7 @@ class GridChargeController:
             self._stable_since = None
             self._voltage_filter.clear()
             self.average_voltage = None
-            self._sustained_low_since = None
+            self._observations.reset()
             self._notify()
             return
 
@@ -250,7 +250,7 @@ class GridChargeController:
             self._stable_since = None
             self._voltage_filter.clear()
             self.average_voltage = None
-            self._sustained_low_since = None
+            self._observations.reset()
             if not self._in_outage:
                 if self._low_since is None:
                     self._low_since = now
@@ -282,27 +282,24 @@ class GridChargeController:
         if voltage >= RECOVERY_VOLTAGE:
             self._in_outage = False
 
-        # Use a time-windowed mean for normal current control and recovery.
-        # If input voltage is below 180 V, don't use that reading to authorize
-        # an upward ramp. Raw <195 V still triggers the emergency current floor.
-        if voltage >= RECOVERY_VOLTAGE:
-            self._update_average(now, voltage)
-        else:
-            self._voltage_filter.clear()
-            self.average_voltage = None
-
-        if voltage < 205:
-            if self._sustained_low_since is None:
-                self._sustained_low_since = now
-        else:
-            self._sustained_low_since = None
-        sustained_low = (self._sustained_low_since is not None
-                         and now - self._sustained_low_since >= 20)
+        # One Luxpower report is ONE observation, even if the 10 s timer
+        # reads it twice. last_reported includes unchanged HA state reports.
+        sample_datetime = (getattr(voltage_state, "last_reported", None)
+                           or getattr(voltage_state, "last_updated", None))
+        sample_at = sample_datetime.timestamp() if sample_datetime else now
+        if self._observations.observe(sample_at, voltage):
+            # The 0 V TOMZN interval is handled above, never averaged.
+            if voltage >= RECOVERY_VOLTAGE:
+                self._update_average(sample_at, voltage)
+            else:
+                self._voltage_filter.clear()
+                self.average_voltage = None
+        sustained_low = self._observations.sustained_low()
 
         # Hysteresis: a brief mean dip to 218 V does not erase the entire
         # recovery period. Sustained raw dips or a weak mean reset recovery.
         if (self.average_voltage is None or self.average_voltage < 215
-                or sustained_low or voltage < 195):
+                or sustained_low or voltage < 185):
             self._stable_since = None
         elif self.average_voltage >= 220 and self._stable_since is None:
             self._stable_since = now
@@ -342,6 +339,7 @@ class GridChargeController:
             stable_for=(now - self._stable_since if self._stable_since is not None else 0),
             since_increase=now - self._last_increase,
             since_voltage_decrease=now - self._last_voltage_decrease,
+            critical_samples=self._observations.critical_samples,
             ramp_up_step=self.settings["ramp_up_step"],
             moderate_drop_step=self.settings["moderate_drop_step"],
             severe_drop_step=self.settings["severe_drop_step"],

@@ -35,7 +35,7 @@ def test_cooldown_holds_minimum():
 
 def test_low_voltage_reduces_fast():
     assert case(voltage=200, current=50, sustained_low=True).target == 40
-    assert case(voltage=194, current=50).target == 10
+    assert case(voltage=184, current=50).target == 10
 
 
 def test_recovery_waits_five_minutes():
@@ -71,7 +71,7 @@ def test_serious_voltage_sag_bypasses_filter():
                 since_voltage_decrease=30).target == 40
     assert case(voltage=200, average_voltage=230, sustained_low=False,
                 since_voltage_decrease=30).target == 50
-    assert case(voltage=194, average_voltage=230,
+    assert case(voltage=184, average_voltage=230,
                 since_voltage_decrease=1).target == 10
 
 
@@ -144,9 +144,9 @@ def test_configurable_severe_decrease_and_interval():
 
 
 def test_custom_minimum_is_respected_on_emergency():
-    assert case(voltage=194, average_voltage=235, current=60,
+    assert case(voltage=184, average_voltage=235, current=60,
                 min_current=15).target == 15
-    assert case(voltage=194, average_voltage=235, current=60,
+    assert case(voltage=184, average_voltage=235, current=60,
                 min_current=5).target == 5
 
 

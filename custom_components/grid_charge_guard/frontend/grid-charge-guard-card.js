@@ -1,4 +1,4 @@
-/** Grid Charge Guard v0.2.3 - bundled Home Assistant Lovelace card. */
+/** Grid Charge Guard v0.2.4 - bundled Home Assistant Lovelace card. */
 class GridChargeGuardCard extends HTMLElement {
   static getStubConfig() { return { type: "custom:grid-charge-guard-card" }; }
   static getConfigForm() {
@@ -90,12 +90,12 @@ class GridChargeGuardCard extends HTMLElement {
         <div class="name">${this.escape(label)} ↗</div>
         <div class="val">${this.escape(this.value(id))} ${this.escape(unit)}</div>
       </button>`).join("");
-    const warning = ["critical_derate", "derated", "low_voltage", "grid_outage"].includes(mode);
+    const warning = ["critical_derate", "derated", "low_voltage", "voltage_dip", "grid_outage"].includes(mode);
     const failure = ["voltage_unavailable", "voltage_stale", "write_failed",
       "current_unavailable", "invalid_current_limits"].includes(mode);
     const modeLabel = {
       normal: "Мережа стабільна", derated: "Обмеження після 2 збоїв",
-      critical_derate: "Мінімальний заряд", low_voltage: "Низька напруга",
+      critical_derate: "Мінімальний заряд", low_voltage: "Низька напруга", voltage_dip: "Коротка просадка",
       grid_outage: "Вхідна мережа відсутня", voltage_unavailable: "Датчик недоступний",
       voltage_stale: "Застарілі дані", current_unavailable: "Немає струму",
       write_failed: "Помилка запису", averaging: "Усереднення напруги",

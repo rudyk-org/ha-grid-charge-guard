@@ -2,7 +2,7 @@
 
 An experimental Home Assistant custom integration that **adjusts only the AC battery charging current limit** of an existing inverter integration using grid input voltage and recent grid interruptions. It does not connect to Luxpower/Modbus itself, and never writes PV charging limits or toggles AC charging.
 
-**Status: v0.2.3, experimental. Use only after a backup, with AC charge current safely configured and the integration switch OFF at installation. Not a substitute for a voltage protection relay, phase selector, fuses, or BMS.**
+**Status: v0.2.4, experimental. Use only after a backup, with AC charge current safely configured and the integration switch OFF at installation. Not a substitute for a voltage protection relay, phase selector, fuses, or BMS.**
 
 ## Requirements
 
@@ -158,8 +158,17 @@ Eight native `number` entities were added and settings persist in the integratio
 
 **Safety limits remain fixed:** raw voltage below 195 V triggers the configured effective minimum; the grid-loss detector still counts zero-voltage interruptions separately; at 2 losses the allowed current is capped at 50 A, at 3 losses the effective minimum is held for 30 minutes. This update does **not** change PV charging, total charge, or the AC Charging switch. Changing the averaging window resets the observation window and upward ramp warmup.
 
-**Card / history:** update the Lovelace resource URL to `/grid-charge-guard/card.js?v=0.2.3` and hard-refresh the dashboard. Tap the target current, maximum, input voltage, averaged voltage, mode, loss count, actual inverter limit, or the most recent event to open Home Assistant's native more-info dialog. Numeric controls in the expandable settings section open the native value editor with history. This relies on the HA Recorder storing those entities; no history is invented by the card.
+**Card / history:** update the Lovelace resource URL to `/grid-charge-guard/card.js?v=0.2.4` and hard-refresh the dashboard. Tap the target current, maximum, input voltage, averaged voltage, mode, loss count, actual inverter limit, or the most recent event to open Home Assistant's native more-info dialog. Numeric controls in the expandable settings section open the native value editor with history. This relies on the HA Recorder storing those entities; no history is invented by the card.
 
 Existing dashboards keep the legacy `sensor.grid_voltage_average_3m` entity ID for compatibility; its new attribute `configured_window_minutes` reflects the actual filter duration, which may no longer be 3 minutes.
 
 **After upgrading:** disable adaptive control during replacement, restart HA, confirm the new number entities exist and have sane defaults, then re-enable with a conservative maximum. This release is tested with pure Python logic unit tests and JS syntax checks only, not on a physical Luxpower.
+
+## v0.2.4: handle 20-second Luxpower voltage reports
+
+- Process each actual HA voltage report only once (`last_reported`, fallback `last_updated`). The 10-second controller poll no longer duplicates voltage history or low-voltage confirmations.
+- An isolated input reading of **185–194.9 V** is marked `voltage_dip` and does not immediately force charging to the minimum. Two distinct consecutive low reports allow a single rate-limited severe reduction; three force the floor.
+- Below **185 V**, immediately reduce the AC charging current to its allowed minimum, subject to HA/Modbus responsiveness. Actual grid loss (0 V) remains separately counted, without Modbus writes during the loss.
+- Average-based control, user-configured steps and minimum current, TOMZN switching events, Telegram and the card remain supported.
+- The HA polling loop cannot act before the inverter reports a drop, and **software is not a replacement for the hardware voltage relay/phase selector**.
+- Test on the hardware with a conservative cap and compare `sensor.grid_voltage_average_3m`, the Luxpower current limit, and `sensor.grid_charge_mode`.

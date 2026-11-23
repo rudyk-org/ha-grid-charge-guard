@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4
+
+- Deduplicate 20-second Luxpower voltage reports inside the 10-second controller loop.
+- Require distinct repeated readings before minimum-current action at 185–195 V; isolated 191 V readings no longer force 10 A.
+- Retain immediate minimum limit below 185 V and independent 0 V TOMZN outage detection.
+- Preserve configurable steps, averaging, dashboard and notifications.
+
 ## 0.2.3
 
 - Add 8 persistent, native HA number entities for minimum AC current, up/down steps, ramp/drop intervals, and voltage averaging window.
